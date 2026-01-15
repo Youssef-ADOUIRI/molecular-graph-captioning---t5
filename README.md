@@ -1,45 +1,27 @@
-# Molecular Graph Captioning
+# ChemGraph2Text: Structural Analysis & Caption Generation
 
-Generative model for generating natural language descriptions from molecular graphs. Uses a Graph Neural Network encoder with a T5 decoder, supporting LoRA for efficient fine-tuning.
+A deep learning framework designed to translate molecular graph structures into descriptive natural language.
 
-## Architecture
 
-```
-Molecular Graph → EdgeAwareGIN → Q-Former Bridge → T5 Decoder → Text
-```
+## Setup & Dependencies
 
-### Components
-
-- **EdgeAwareGIN**: 4-layer Graph Isomorphism Network with edge features
-- **Q-Former Bridge**: Cross-attention with 32 learnable query tokens
-- **T5 Decoder**: T5-base with optional LoRA fine-tuning
-
-## Installation
+To set up the environment, run:
 
 ```bash
-# Using uv (recommended)
-uv sync
-
-# Or using pip
+# Recommended verification of dependencies
 pip install -r requirements.txt
-pip install peft  # For LoRA support
 ```
 
-## Quick Start
+## Execution Guide
 
-### Training
+### 1. Training the Model
+
+You can train the model in standard mode or with LoRA for better efficiency.
 
 ```bash
-# Standard training (two-phase: frozen → unfrozen LM)
+# efficient training with LoRA (Recommended)
 python -m app.train_generative \
-    --data_dir data \
-    --lm_name laituan245/molt5-base \
-    --epochs 20 \
-    --batch_size 16
-
-# With LoRA (recommended - more efficient)
-python -m app.train_generative \
-    --data_dir data \
+    --data_dir baseline/data \
     --lm_name laituan245/molt5-base \
     --epochs 15 \
     --use_lora \
@@ -47,16 +29,18 @@ python -m app.train_generative \
     --lora_alpha 32
 ```
 
-### Evaluation
+### 2. Performance Evaluation
+
+Assess the model using standard NLP metrics (BLEU-4, BERTScore).
 
 ```bash
-# Pure generation evaluation
+# Standard evaluation
 python -m app.evaluate \
-    --checkpoint checkpoints/best_model.pt \
+    --checkpoint baseline/checkpoints/best_model.pt \
     --lm_name laituan245/molt5-base \
     --use_lora
 
-# Hybrid (retrieval + generation) evaluation
+# Hybrid evaluation (Retrieval + Generation strategy)
 python -m app.evaluate_hybrid \
     --checkpoint checkpoints/best_model.pt \
     --lm_name laituan245/molt5-base \
@@ -64,69 +48,15 @@ python -m app.evaluate_hybrid \
     --threshold 0.90
 ```
 
-### Generate Submission
+### 3. Submission Generation
+
+Generate the final CSV file for testing data.
 
 ```bash
-# Pure generation
-python -m app.generate_submission \
-    --checkpoint checkpoints/best_model.pt \
-    --lm_name laituan245/molt5-base \
-    --use_lora
-
-# Hybrid (recommended for best BLEU-4)
+# Hybrid Strategy (Optimized for higher BLEU scores)
 python -m app.generate_submission_hybrid \
     --checkpoint checkpoints/best_model.pt \
     --lm_name laituan245/molt5-base \
     --use_lora \
     --threshold 0.90
 ```
-
-## Project Structure
-
-```
-app/
-├── model.py              # MolecularCaptioner (main model)
-├── graph_encoder.py      # EdgeAwareGIN encoder
-├── bridge.py             # Q-Former cross-attention bridge
-├── dataset.py            # Data loading and tokenization
-├── train_generative.py   # Training script
-├── evaluate.py           # Evaluation (BLEU-4, BERTScore)
-├── evaluate_hybrid.py    # Hybrid evaluation
-├── generate_submission.py        # Pure generation submission
-└── generate_submission_hybrid.py # Hybrid submission
-```
-
-## Key Arguments
-
-| Argument       | Description                                               | Default               |
-| -------------- | --------------------------------------------------------- | --------------------- |
-| `--lm_name`    | Language model (t5-small, t5-base, laituan245/molt5-base) | laituan245/molt5-base |
-| `--use_lora`   | Enable LoRA fine-tuning                                   | False                 |
-| `--lora_r`     | LoRA rank                                                 | 16                    |
-| `--lora_alpha` | LoRA alpha                                                | 32                    |
-| `--threshold`  | Similarity threshold for hybrid                           | 0.90                  |
-| `--epochs`     | Training epochs                                           | 15                    |
-| `--batch_size` | Batch size                                                | 16                    |
-
-## Results
-
-| Method          | BLEU-4 | BERTScore | Leaderboard |
-| --------------- | ------ | --------- | ----------- |
-| Pure Generation | 0.247  | 0.969     | 0.55        |
-| Hybrid (τ=0.95) | 0.474  | 0.978     | 0.645       |
-
-## Data Format
-
-Place data in `data/` folder:
-
-- `train_graphs.pkl`: List of PyG Data objects with `.description`
-- `validation_graphs.pkl`: Validation set
-- `test_graphs.pkl`: Test set (no descriptions)
-
-Each graph has:
-
-- `x`: Node features [N, 9] (atom properties)
-- `edge_index`: Edge connections [2, E]
-- `edge_attr`: Edge features [E, 3] (bond properties)
-- `description`: Ground truth text (train/val only)
-- `id`: Molecule identifier
