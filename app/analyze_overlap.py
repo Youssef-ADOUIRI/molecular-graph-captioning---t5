@@ -162,7 +162,14 @@ def main(args):
         lora_alpha=args.lora_alpha,
     )
     
-    checkpoint = torch.load(args.checkpoint, map_location=device)
+    try:
+        checkpoint = torch.load(args.checkpoint, map_location=device)
+    except (RuntimeError, OSError, pickle.UnpicklingError) as e:
+        print(f"\n[ERROR] Failed to load checkpoint: {args.checkpoint}")
+        print(f"[ERROR] The file might be corrupted, incomplete, or not a valid PyTorch checkpoint.")
+        print(f"[ERROR] Details: {str(e)}")
+        return
+
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
     
