@@ -1,10 +1,11 @@
 """
 Complete Molecular Captioner model combining:
-- EdgeAwareGIN graph encoder
-- GraphToTextBridge projector  
+- StructureEncoder graph encoder
+- GraphToTextBridge projector
 - T5 decoder for text generation
 - Optional LoRA for efficient fine-tuning
 """
+
 import torch
 import torch.nn as nn
 from torch_geometric.data import Batch
@@ -14,23 +15,24 @@ from transformers.modeling_outputs import BaseModelOutput
 # LoRA support (optional)
 try:
     from peft import LoraConfig, get_peft_model, TaskType
+
     HAS_PEFT = True
 except ImportError:
     HAS_PEFT = False
     print("Warning: peft not installed. LoRA not available. Run: pip install peft")
 
-from app.graph_encoder import EdgeAwareGIN
+from app.graph_encoder import StructureEncoder
 from app.bridge import GraphToTextBridge, SimpleBridge
 
 
-class MolecularCaptioner(nn.Module):
+class Graph2CaptionModel(nn.Module):
     """
     End-to-end Graph-to-Text model for molecular captioning.
-    
+
     Architecture:
-        Graph -> GIN Encoder -> Bridge Projector -> T5 Decoder -> Text
+        Graph -> Structure Encoder -> Bridge Projector -> T5 Decoder -> Text
     """
-    
+
     def __init__(
         self,
         lm_name: str = "laituan245/molt5-base",
@@ -44,7 +46,7 @@ class MolecularCaptioner(nn.Module):
         use_lora: bool = False,
         lora_r: int = 16,
         lora_alpha: int = 32,
-        lora_dropout: float = 0.1
+        lora_dropout: float = 0.1,
     ):
         """
         Args:
@@ -58,23 +60,25 @@ class MolecularCaptioner(nn.Module):
             gradient_checkpointing: Enable for memory efficiency
         """
         super().__init__()
-        
+
         self.use_lora = use_lora
         self.freeze_lm = freeze_lm
-        
+
         # Load T5 model
-        self.lm = T5ForConditionalGeneration.from_pretrained(lm_name)
-        lm_dim = self.lm.config.d_model  # 512 for t5-small, 768 for t5-base
-        
+        self.decoder = T5ForConditionalGeneration.from_pretrained(lm_name)
+        lm_dim = self.decoder.config.d_model  # 512 for t5-small, 768 for t5-base
+
         # Enable gradient checkpointing for memory efficiency
         if gradient_checkpointing:
-            self.lm.gradient_checkpointing_enable()
-        
+            self.decoder.gradient_checkpointing_enable()
+
         # Apply LoRA if requested
         if use_lora:
             if not HAS_PEFT:
-                raise ImportError("peft library required for LoRA. Run: pip install peft")
-            
+                raise ImportError(
+                    "peft library required for LoRA. Run: pip install peft"
+                )
+
             lora_config = LoraConfig(
                 task_type=TaskType.SEQ_2_SEQ_LM,
                 r=lora_r,
@@ -83,111 +87,110 @@ class MolecularCaptioner(nn.Module):
                 target_modules=["q", "v"],  # Query and Value projections
                 # For full adaptation: ["q", "k", "v", "o", "wi", "wo"]
             )
-            self.lm = get_peft_model(self.lm, lora_config)
+            self.decoder = get_peft_model(self.decoder, lora_config)
             print(f"  LoRA applied: r={lora_r}, alpha={lora_alpha}")
-            self.lm.print_trainable_parameters()
-        
+            self.decoder.print_trainable_parameters()
+
         # Freeze LM if specified (and not using LoRA)
         elif freeze_lm:
-            for param in self.lm.parameters():
+            for param in self.decoder.parameters():
                 param.requires_grad = False
-        
+
         # Graph encoder
-        self.graph_encoder = EdgeAwareGIN(
+        self.encoder = StructureEncoder(
             hidden_dim=graph_hidden_dim,
             out_dim=graph_out_dim,
-            num_layers=num_gnn_layers
+            num_layers=num_gnn_layers,
         )
-        
+
         # Bridge to project graph to LM space
         if use_simple_bridge:
             self.bridge = SimpleBridge(
-                graph_dim=graph_out_dim,
-                lm_dim=lm_dim,
-                num_tokens=num_query_tokens
+                graph_dim=graph_out_dim, lm_dim=lm_dim, num_tokens=num_query_tokens
             )
             self.use_node_embeddings = False
         else:
             self.bridge = GraphToTextBridge(
                 graph_dim=graph_out_dim,
                 lm_dim=lm_dim,
-                num_query_tokens=num_query_tokens
+                num_query_tokens=num_query_tokens,
             )
             self.use_node_embeddings = True
-        
+
         self.num_query_tokens = num_query_tokens
         self.lm_dim = lm_dim
-        
+
     def unfreeze_lm(self, unfreeze_layers: int = -1):
         """
         Unfreeze LM parameters for fine-tuning.
-        
+
         Args:
             unfreeze_layers: Number of decoder layers to unfreeze.
                             -1 means unfreeze all.
         """
         if unfreeze_layers == -1:
-            for param in self.lm.parameters():
+            for param in self.decoder.parameters():
                 param.requires_grad = True
         else:
             # Unfreeze only last N decoder layers
-            decoder_layers = self.lm.decoder.block
+            decoder_layers = self.decoder.decoder.block
             for layer in decoder_layers[-unfreeze_layers:]:
                 for param in layer.parameters():
                     param.requires_grad = True
             # Also unfreeze LM head
-            for param in self.lm.lm_head.parameters():
+            for param in self.decoder.lm_head.parameters():
                 param.requires_grad = True
-                
+
     def forward(
         self,
         graph_batch: Batch,
         labels: torch.Tensor = None,
-        attention_mask: torch.Tensor = None
+        attention_mask: torch.Tensor = None,
     ):
         """
         Forward pass for training.
-        
+
         Args:
             graph_batch: PyG Batch with molecular graphs
             labels: Target token IDs [B, seq_len]
             attention_mask: Not used (kept for API compatibility)
-            
+
         Returns:
             loss: Cross-entropy loss if labels provided
             logits: Output logits [B, seq_len, vocab_size]
         """
         # Encode graph
         if self.use_node_embeddings:
-            node_embs = self.graph_encoder.get_node_embeddings(graph_batch)
+            node_embs = self.encoder.get_node_embeddings(graph_batch)
             graph_tokens = self.bridge(node_embs, graph_batch.batch)
         else:
-            graph_emb = self.graph_encoder(graph_batch)
+            graph_emb = self.encoder(graph_batch)
             graph_tokens = self.bridge(graph_emb)
-        
+
         # graph_tokens: [B, num_query_tokens, lm_dim]
         batch_size = graph_tokens.size(0)
-        
+
         # Create encoder outputs wrapper for T5
         # T5 expects BaseModelOutput with last_hidden_state
         encoder_outputs = BaseModelOutput(last_hidden_state=graph_tokens)
-        
+
         # Create attention mask for encoder outputs (all valid)
         encoder_attention_mask = torch.ones(
-            batch_size, self.num_query_tokens,
+            batch_size,
+            self.num_query_tokens,
             device=graph_tokens.device,
-            dtype=torch.long
+            dtype=torch.long,
         )
-        
+
         # Forward through T5 decoder
-        outputs = self.lm(
+        outputs = self.decoder(
             encoder_outputs=encoder_outputs,
             attention_mask=encoder_attention_mask,
-            labels=labels
+            labels=labels,
         )
-        
+
         return outputs
-    
+
     @torch.no_grad()
     def generate(
         self,
@@ -199,11 +202,11 @@ class MolecularCaptioner(nn.Module):
         do_sample: bool = False,
         temperature: float = 1.0,
         top_p: float = 0.9,
-        **kwargs
+        **kwargs,
     ):
         """
         Generate captions for molecular graphs.
-        
+
         Args:
             graph_batch: PyG Batch with molecular graphs
             max_length: Maximum generation length
@@ -211,32 +214,33 @@ class MolecularCaptioner(nn.Module):
             do_sample: Use sampling instead of beam search
             temperature: Sampling temperature
             top_p: Nucleus sampling threshold
-            
+
         Returns:
             generated_ids: [B, seq_len] token IDs
         """
         self.eval()
-        
+
         # Encode graph
         if self.use_node_embeddings:
-            node_embs = self.graph_encoder.get_node_embeddings(graph_batch)
+            node_embs = self.encoder.get_node_embeddings(graph_batch)
             graph_tokens = self.bridge(node_embs, graph_batch.batch)
         else:
-            graph_emb = self.graph_encoder(graph_batch)
+            graph_emb = self.encoder(graph_batch)
             graph_tokens = self.bridge(graph_emb)
-        
+
         batch_size = graph_tokens.size(0)
-        
+
         # Create encoder outputs
         encoder_outputs = BaseModelOutput(last_hidden_state=graph_tokens)
         encoder_attention_mask = torch.ones(
-            batch_size, self.num_query_tokens,
+            batch_size,
+            self.num_query_tokens,
             device=graph_tokens.device,
-            dtype=torch.long
+            dtype=torch.long,
         )
-        
+
         # Generate
-        generated_ids = self.lm.generate(
+        generated_ids = self.decoder.generate(
             encoder_outputs=encoder_outputs,
             attention_mask=encoder_attention_mask,
             max_length=max_length,
@@ -247,11 +251,11 @@ class MolecularCaptioner(nn.Module):
             temperature=temperature if do_sample else 1.0,
             top_p=top_p if do_sample else 1.0,
             early_stopping=True,
-            **kwargs
+            **kwargs,
         )
-        
+
         return generated_ids
-    
+
     def count_parameters(self):
         """Count trainable and total parameters."""
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -259,18 +263,18 @@ class MolecularCaptioner(nn.Module):
         return trainable, total
 
 
-def create_model(
+def build_molecular_graph_model(
     lm_name: str = "laituan245/molt5-base",
     freeze_lm: bool = True,
     use_simple_bridge: bool = False,
     gradient_checkpointing: bool = True,
     use_lora: bool = False,
     lora_r: int = 16,
-    lora_alpha: int = 32
-) -> MolecularCaptioner:
+    lora_alpha: int = 32,
+) -> Graph2CaptionModel:
     """
     Factory function to create model with good defaults.
-    
+
     Args:
         lm_name: HuggingFace model name
         freeze_lm: Freeze LM (ignored if use_lora=True)
@@ -278,7 +282,7 @@ def create_model(
         lora_r: LoRA rank
         lora_alpha: LoRA alpha scaling
     """
-    model = MolecularCaptioner(
+    model = Graph2CaptionModel(
         lm_name=lm_name,
         graph_hidden_dim=256,
         graph_out_dim=512,
@@ -289,9 +293,9 @@ def create_model(
         gradient_checkpointing=gradient_checkpointing,
         use_lora=use_lora,
         lora_r=lora_r,
-        lora_alpha=lora_alpha
+        lora_alpha=lora_alpha,
     )
-    
+
     trainable, total = model.count_parameters()
     print(f"Model created: {lm_name}")
     print(f"  Total parameters: {total:,}")
@@ -300,33 +304,34 @@ def create_model(
         print(f"  Using LoRA (r={lora_r}, alpha={lora_alpha})")
     else:
         print(f"  LM frozen: {freeze_lm}")
-    
+
     return model
 
 
 if __name__ == "__main__":
-    print("Testing MolecularCaptioner...")
-    
+    print("Testing Graph2CaptionModel...")
+
     from torch_geometric.data import Data
-    
+
     # Create dummy graph data
     x = torch.randint(0, 10, (5, 9))
     edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
     edge_attr = torch.randint(0, 5, (4, 3))
-    
+
     data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     batch = Batch.from_data_list([data, data])
-    
+
     # Create model
-    model = create_model(freeze_lm=True)
-    
+    model = build_molecular_graph_model(freeze_lm=True)
+
     # Test forward pass
     labels = torch.randint(0, 100, (2, 32))  # Dummy labels
     outputs = model(batch, labels=labels)
     print(f"Loss: {outputs.loss.item():.4f}")
-    
+
     # Test generation
     generated = model.generate(batch, max_length=50, num_beams=2)
     print(f"Generated shape: {generated.shape}")
-    
-    print("\nMolecularCaptioner test passed!")
+
+    print("\nGraph2CaptionModel test passed!")
+

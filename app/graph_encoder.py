@@ -84,12 +84,13 @@ class EdgeEmbedding(nn.Module):
         return torch.cat(embedded, dim=-1)
 
 
-class EdgeAwareGIN(nn.Module):
+
+class StructureEncoder(nn.Module):
     """
-    Graph Isomorphism Network with Edge features (GINE).
+    Molecular GNN encoder using GINE convolution operation.
     
-    Uses all 9 node features and 3 edge features for a rich molecular
-    representation. Outputs both node-level and graph-level embeddings.
+    Processes 9 node features and 3 edge features to generate
+    structural embeddings for the chemical graph.
     """
     
     def __init__(
@@ -186,7 +187,7 @@ class EdgeAwareGIN(nn.Module):
 
 if __name__ == "__main__":
     # Quick test
-    print("Testing EdgeAwareGIN...")
+    print("Testing StructureEncoder...")
     # Create dummy data
     from torch_geometric.data import Data
     
@@ -197,7 +198,7 @@ if __name__ == "__main__":
     data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     batch = Batch.from_data_list([data, data])  # Batch of 2
     
-    model = EdgeAwareGIN()
+    model = StructureEncoder()
     
     # Test graph-level output
     graph_out = model(batch)
@@ -207,4 +208,4 @@ if __name__ == "__main__":
     node_out = model.get_node_embeddings(batch)
     print(f"Node output shape: {node_out.shape}")  # Should be [10, 512]
     
-    print("EdgeAwareGIN test passed!")
+    print("StructureEncoder test passed!")

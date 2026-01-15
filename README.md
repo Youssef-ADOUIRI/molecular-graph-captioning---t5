@@ -9,10 +9,10 @@ Molecular Graph → EdgeAwareGIN → Q-Former Bridge → T5 Decoder → Text
 ```
 
 ### Components
-- **EdgeAwareGIN**: 4-layer Graph Isomorphism Network with edge features
-- **Q-Former Bridge**: Cross-attention with 32 learnable query tokens  
-- **T5 Decoder**: T5-base with optional LoRA fine-tuning
 
+- **EdgeAwareGIN**: 4-layer Graph Isomorphism Network with edge features
+- **Q-Former Bridge**: Cross-attention with 32 learnable query tokens
+- **T5 Decoder**: T5-base with optional LoRA fine-tuning
 
 ## Installation
 
@@ -26,7 +26,6 @@ pip install peft  # For LoRA support
 ```
 
 ## Quick Start
-
 
 ### Training
 
@@ -99,31 +98,33 @@ app/
 
 ## Key Arguments
 
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `--lm_name` | Language model (t5-small, t5-base, laituan245/molt5-base) | laituan245/molt5-base |
-| `--use_lora` | Enable LoRA fine-tuning | False |
-| `--lora_r` | LoRA rank | 16 |
-| `--lora_alpha` | LoRA alpha | 32 |
-| `--threshold` | Similarity threshold for hybrid | 0.90 |
-| `--epochs` | Training epochs | 15 |
-| `--batch_size` | Batch size | 16 |
+| Argument       | Description                                               | Default               |
+| -------------- | --------------------------------------------------------- | --------------------- |
+| `--lm_name`    | Language model (t5-small, t5-base, laituan245/molt5-base) | laituan245/molt5-base |
+| `--use_lora`   | Enable LoRA fine-tuning                                   | False                 |
+| `--lora_r`     | LoRA rank                                                 | 16                    |
+| `--lora_alpha` | LoRA alpha                                                | 32                    |
+| `--threshold`  | Similarity threshold for hybrid                           | 0.90                  |
+| `--epochs`     | Training epochs                                           | 15                    |
+| `--batch_size` | Batch size                                                | 16                    |
 
 ## Results
 
-| Method | BLEU-4 | BERTScore | Leaderboard |
-|--------|--------|-----------|-------------|
-| Pure Generation | 0.247 | 0.969 | 0.55 |
-| Hybrid (τ=0.95) | 0.474 | 0.978 | 0.645 |
+| Method          | BLEU-4 | BERTScore | Leaderboard |
+| --------------- | ------ | --------- | ----------- |
+| Pure Generation | 0.247  | 0.969     | 0.55        |
+| Hybrid (τ=0.95) | 0.474  | 0.978     | 0.645       |
 
 ## Data Format
 
 Place data in `data/` folder:
+
 - `train_graphs.pkl`: List of PyG Data objects with `.description`
 - `validation_graphs.pkl`: Validation set
 - `test_graphs.pkl`: Test set (no descriptions)
 
 Each graph has:
+
 - `x`: Node features [N, 9] (atom properties)
 - `edge_index`: Edge connections [2, E]
 - `edge_attr`: Edge features [E, 3] (bond properties)
