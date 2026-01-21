@@ -209,7 +209,27 @@ def main(args):
     )
 
     checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    state_dict = checkpoint["model_state_dict"]
+
+    # Fix legacy key names
+    new_state_dict = {}
+    renamed_count = 0
+    for k, v in state_dict.items():
+        if k.startswith("lm."):
+            new_k = "decoder." + k[3:]
+            new_state_dict[new_k] = v
+            renamed_count += 1
+        elif k.startswith("graph_encoder."):
+            new_k = "encoder." + k[14:]
+            new_state_dict[new_k] = v
+            renamed_count += 1
+        else:
+            new_state_dict[k] = v
+            
+    if renamed_count > 0:
+        print(f"Renamed {renamed_count} keys for compatibility.")
+
+    model.load_state_dict(new_state_dict)
     model = model.to(device)
     model.eval()
 

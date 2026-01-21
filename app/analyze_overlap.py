@@ -170,7 +170,36 @@ def main(args):
         print(f"[ERROR] Details: {str(e)}")
         return
 
-    model.load_state_dict(checkpoint["model_state_dict"])
+    state_dict = checkpoint["model_state_dict"]
+    
+    # Fix legacy key names (lm -> decoder) and (graph_encoder -> encoder)
+    new_state_dict = {}
+    renamed_count = 0
+    for k, v in state_dict.items():
+        if k.startswith("lm."):
+            new_k = "decoder." + k[3:]
+            new_state_dict[new_k] = v
+            renamed_count += 1
+        elif k.startswith("graph_encoder."):
+            new_k = "encoder." + k[14:]
+            new_state_dict[new_k] = v
+            renamed_count += 1
+        else:
+            new_state_dict[k] = v
+            
+    if renamed_count > 0:
+        print(f"Renamed {renamed_count} keys for compatibility (lm->decoder, graph_encoder->encoder).")
+
+    try:
+        model.load_state_dict(new_state_dict)
+        print("Model weights loaded successfully.")
+    except RuntimeError as e:
+        print(f"\n[ERROR] State dictionary mismatch even after renaming!")
+        print(f"Error details: {e}")
+        # Print a few keys to help debugging
+        print("\nCheckpoint keys (sample):", list(new_state_dict.keys())[:5])
+        print("Model keys (sample):", list(model.state_dict().keys())[:5])
+        return
     model = model.to(device)
     
     # Run Analysis
