@@ -16,13 +16,7 @@ from transformers import AutoTokenizer
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 # BERTScore (optional - install with: pip install bert-score)
-try:
-    from bert_score import score as bert_score
-
-    HAS_BERTSCORE = True
-except ImportError:
-    HAS_BERTSCORE = False
-    print("Warning: bert-score not installed. Run: pip install bert-score")
+from bert_score import score as bert_score
 
 from app.dataset import MolecularCaptionDataset, collate_fn_generative
 from app.model import build_molecular_graph_model
@@ -85,14 +79,12 @@ def compute_bertscore(
     Returns:
         Dictionary with BERTScore metrics
     """
-    if not HAS_BERTSCORE:
-        return {"BERTScore-F1": -1.0, "BERTScore-P": -1.0, "BERTScore-R": -1.0}
+
 
     P, R, F1 = bert_score(
         predictions,
         references,
-        model_type="seyonec/ChemBERTa-zinc-base-v1",
-        num_layers=6,  # ChemBERTa has 12 layers
+        model_type="roberta-base",
         verbose=False,
     )
 

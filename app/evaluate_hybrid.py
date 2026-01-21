@@ -15,12 +15,7 @@ from transformers import AutoTokenizer
 
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
-try:
-    from bert_score import score as bert_score
-
-    HAS_BERTSCORE = True
-except ImportError:
-    HAS_BERTSCORE = False
+from bert_score import score as bert_score
 
 from app.model import build_molecular_graph_model
 
@@ -72,14 +67,12 @@ def compute_bleu4(predictions, references):
 
 
 def compute_bertscore(predictions, references):
-    if not HAS_BERTSCORE:
-        return {"BERTScore-F1": -1.0}
+
 
     P, R, F1 = bert_score(
         predictions,
         references,
-        model_type="seyonec/ChemBERTa-zinc-base-v1",
-        num_layers=6,
+        model_type="roberta-base",
         verbose=False,
     )
     return {
@@ -122,7 +115,27 @@ def main(args):
         lora_alpha=args.lora_alpha,
     )
     checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    state_dict = checkpoint["model_state_dict"]
+
+    # Fix legacy key names
+    new_state_dict = {}
+    renamed_count = 0
+    for k, v in state_dict.items():
+        if k.startswith("lm."):
+            new_k = "decoder." + k[3:]
+            new_state_dict[new_k] = v
+            renamed_count += 1
+        elif k.startswith("graph_encoder."):
+            new_k = "encoder." + k[14:]
+            new_state_dict[new_k] = v
+            renamed_count += 1
+        else:
+            new_state_dict[k] = v
+            
+    if renamed_count > 0:
+        print(f"Renamed {renamed_count} keys for compatibility.")
+
+    model.load_state_dict(new_state_dict)
     model = model.to(device)
     model.eval()
 
