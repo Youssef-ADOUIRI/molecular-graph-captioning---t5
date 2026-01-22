@@ -50,7 +50,7 @@ class Graph2CaptionModel(nn.Module):
     ):
         """
         Args:
-            lm_name: HuggingFace model name (t5-small, t5-base)
+            lm_name: HuggingFace model name (molt5-small, molt5-base)
             graph_hidden_dim: Hidden dimension for GNN layers
             graph_out_dim: Output dimension of graph encoder
             num_gnn_layers: Number of GIN layers
